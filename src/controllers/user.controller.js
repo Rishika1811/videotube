@@ -5,6 +5,7 @@ import {uploadOnCloudinary} from "../utils/Cloudinary.js"
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken"
 import mongoose from "mongoose";
+import { upload } from "../middlewares/multer.middleware.js";
 
 const genereateAccessAndRefreshTokens= async(userId) =>{
     try {
@@ -172,6 +173,9 @@ const logoutUser = asyncHandler( async(req,res)=>{
 })
 /*--------------------------------------------------------------------------------------------------------------------------*/
 
+// Access Token - Short lived, not stored in db
+// Refresh Token - Long lived, stored in db
+// When access token expires, the frontend sends the refresh token to the backend to validate user (login), once again.
 const refreshAccessToken = asyncHandler(async (req, res) => {
     const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
 
@@ -220,4 +224,88 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
 })
 
-export {registerUser , loginUser , logoutUser, refreshAccessToken }          //export an object so import an object
+const changeCurrentPassword = asyncHandler(async(req,res)=>{
+    const {oldPass, newPass} = req.body
+
+    const user= await User.findById(req.user?._id)
+    const isPasswordCorrect= await user.isPasswordCorrect(oldPass)
+    if(!isPasswordCorrect){
+        throw new ApiError(400,"Invalid ols password")
+    }
+    user.password=newPass
+    await user.save({validateBeforeSave})                 // userSchema.pre will work first
+    return res.status(200).json(new ApiResponse(200,{},"password changed successfully"))
+})
+
+const updateUserDetails= asyncHandler(async(req,res)=>{
+    const {fullName, email} = req.body
+
+    if(!fullName || !email){
+        throw new ApiError(400, "All fields are requuired")
+    }
+
+    const user = await User.findByIdAndUpdate(      // will update itself
+        req.user?._id,
+        {
+            $set:{
+                fullName,
+                email : email
+            }
+        },
+        {new:true}                                  // will return the updated user
+    ).select("-password")                     
+
+    return res.status(200).json(new ApiResponse(200, user, "User details updted sucesssfully"))
+})
+
+const updateUserAvatar = asyncHandler(async (req,res) => {
+    const avatarLocalPath=req.file?.path            //by multer middleware get local path (here public/temp)
+    if(!avatarLocalPath){
+        throw new ApiError(400, "Avatar file is missing")
+    }
+    const avatar = await uploadOnCloudinary(avatarLocalPath)
+    if(!avatar){
+        throw new ApiError(400, "Error while uploading avatar")
+    }
+
+    const user= await findByIdAndUpdate(
+        req.user?._id,
+        {
+            $set: {
+                avatar:avatar.url
+            }
+        },
+        {new:true}
+    ).select("-password")
+
+    return res.status(200).json(new ApiResponse(200, user, "Avatar updated successfully"))
+})
+
+const updateCoverImage = asyncHandler(async (req,res) => {
+    const coverImageLocalPath=req.file?.path            //by multer middleware
+    if(!coverImageLocalPath){
+        throw new ApiError(400, "Cover image file is missing")
+    }
+    const coverImage = await uploadOnCloudinary(coverImageLocalPath)
+    if(!coverImage){
+        throw new ApiError(400, "Error while uploading cover iamge")
+    }
+
+    const user= await findByIdAndUpdate(
+        req.user?._id,
+        {
+            $set: {
+                coverImage:coverImage.url
+            }
+        },
+        {new:true}
+    ).select("-password")
+
+    return res.status(200).json(new ApiResponse(200, user, "Cover image updated successfully"))
+})
+
+const getCurrentUser = asyncHandler( async(req,res)=>{
+    return res.status(200).json(200, {req.user}, "Crrent user fetched successfully")
+})
+export {registerUser , loginUser , logoutUser, refreshAccessToken,changeCurrentPassword,
+     getCurrentUser, updateUserDetails, updateUserAvatar, updateCoverImage }          //export an object so import an object
